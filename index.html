@@ -196,7 +196,7 @@ addEventListener('keyup',   e=>{ keys[e.code]=false; });
 let level=1, totalCoins=0, lvlCoins=0, lives=3, gameOver=false, lvlDone=false;
 const GRAVITY=-22, JUMP_V=10, MOVE_V=6, PW=0.35;
 const ps = { x:1,y:2,vx:0,vy:0,onGround:false,facing:1,inv:0 };
-let boxes=[], coinObjs=[], hazardDefs=[], flagPos={x:0,y:0};
+let boxes=[], coinObjs=[], flagPos={x:0,y:0};
 
 const lvlGroup = new THREE.Group(); scene.add(lvlGroup);
 
@@ -356,171 +356,238 @@ function makeRng(seed){
 }
 function lrp(a,b,t){return a+(b-a)*Math.min(1,Math.max(0,t));}
 
+// ── Moving / animated level objects (rebuilt each level) ──────────────────────
+let movPlats  = []; // {mesh, startX, y, range, speed, t, boxIdx}
+let sawObjs   = []; // {mesh, startX, y, range, speed, t}
+let springPos = []; // {x, y}  — static springs (boost jump)
+
 // ── Level generator ───────────────────────────────────────────────────────────
-// Returns { blocks:[{x,y}], coins:[[x,y]], hazards:[{x,y}], flagX, flagY }
-function generateLevel(lvl){
-  const rng=makeRng(lvl);
-  const d=(lvl-1)/(MAX_LEVELS-1); // 0→1
-
-  // Pick a layout style that makes each level feel distinct
-  const style=Math.floor(rng()*5);
-  // 0=zigzag  1=staircase up  2=staircase down+up  3=random  4=valley
-
-  const blocks=[], coins=[], hazards=[];
-
-  // Start platform (always 3-4 blocks, always at y=0)
-  const startW=Math.max(3,Math.round(lrp(4,2,d)));
-  for(let i=0;i<startW;i++) blocks.push({x:i,y:0});
-
-  let cx=startW-1, cy=0;
-  const numP=Math.round(lrp(7,17,d));   // 7→17 platforms
-  const gapMax=Math.round(lrp(2,5,d));  // gap grows
-  const maxH=Math.round(lrp(2,6,d));    // height ceiling grows
-  const maxDy=Math.max(1,Math.round(lrp(1,3,d))); // height step grows
-
-  for(let i=0;i<numP;i++){
-    const t=i/numP; // progress 0→1 within level
-    const gap=2+Math.floor(rng()*(gapMax-1));
-    const nx=cx+gap+1;
-
-    // Height delta based on style
-    let dy=0;
-    switch(style){
-      case 0: // zigzag — alternating up/down
-        dy = (i%2===0?1:-1)*Math.max(1,Math.floor(rng()*maxDy+.5));
-        break;
-      case 1: // staircase — keeps going up with occasional dip
-        dy = rng()<.75 ? Math.ceil(rng()*maxDy) : -1;
-        break;
-      case 2: // valley — goes down first half, up second
-        dy = t<.5 ? -Math.ceil(rng()*maxDy) : Math.ceil(rng()*maxDy);
-        break;
-      case 3: // purely random
-        dy = Math.round((rng()*2-1)*maxDy);
-        break;
-      case 4: // mostly flat with occasional big jump
-        dy = rng()<.3 ? Math.round((rng()*2-1)*maxDy*1.5) : 0;
-        break;
-    }
-    cy=Math.max(0,Math.min(maxH,cy+dy));
-
-    const maxPW=Math.max(1,Math.round(lrp(3,1,d)));
-    const pw=1+Math.floor(rng()*maxPW);
-
-    for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy});
-
-    // Coins above platform (more coins at higher difficulty to reward skill)
-    for(let j=0;j<pw;j++){
-      if(rng()<lrp(.35,.85,d)) coins.push([nx+j, cy+1.8]);
-    }
-
-    // Spike hazard (starts at level 4, increases with difficulty)
-    if(lvl>=4 && pw>=2 && rng()<lrp(0,.7,Math.max(0,(d-.1)/.9))){
-      hazards.push({x:nx+Math.floor(pw/2), y:cy});
-    }
-
-    cx=nx+pw-1;
-  }
-
-  // End platform + flag (always safely reachable — small fixed gap)
-  const ex=cx+3;
-  const ey=Math.max(0,Math.min(3,cy+Math.round((rng()-.5)*2)));
-  for(let i=0;i<3;i++) blocks.push({x:ex+i,y:ey});
-
-  return {blocks,coins,hazards,flagX:ex+1,flagY:ey};
+function blockPalette(lvl){
+  // Alternate grass/snow every 10 levels; use low variants mid-game
+  const g = ['block-grass','block-grass','block-grass-low','block-grass-low','block-grass'];
+  const s = ['block-snow', 'block-snow', 'block-snow-low', 'block-snow-low', 'block-snow'];
+  const decade = Math.floor((lvl-1)/10);
+  return decade%2===0 ? g[decade%g.length] : s[decade%s.length];
 }
 
-// ── Build / load level ─────────────────────────────────────────────────────────
+function pickHazard(rng, lvl){
+  const pool=['trap-spikes'];
+  if(lvl>=12) pool.push('trap-spikes-large');
+  if(lvl>=20) pool.push('saw','saw'); // saw weighted 2×
+  if(lvl>=30) pool.push('spike-block');
+  if(lvl>=50) pool.push('saw','trap-spikes-large'); // even more weight
+  return pool[Math.floor(rng()*pool.length)];
+}
+
+function pickCoin(rng, lvl){
+  if(lvl>=60 && rng()<0.12) return 'jewel';
+  if(lvl>=40 && rng()<0.20) return 'coin-silver';
+  if(lvl>=20 && rng()<0.15) return 'coin-bronze';
+  return 'coin-gold';
+}
+
+function heightStep(style,i,n,rng,maxDy){
+  switch(style){
+    case 0: return (i%2===0?1:-1)*Math.max(1,Math.floor(rng()*maxDy+.5));
+    case 1: return rng()<.72?Math.ceil(rng()*maxDy):-1;
+    case 2: return i<n/2?-Math.ceil(rng()*maxDy):Math.ceil(rng()*maxDy);
+    case 3: return Math.round((rng()*2-1)*maxDy);
+    default:return rng()<.28?Math.round((rng()*2-1)*maxDy*1.6):0;
+  }
+}
+
+// Returns { blocks, coins, staticHaz, movingHaz, springs, movPlats, flagX, flagY }
+function generateLevel(lvl){
+  const rng = makeRng(lvl);
+  const d   = (lvl-1)/(MAX_LEVELS-1); // 0→1
+
+  const style   = Math.floor(rng()*5);
+  const bModel  = blockPalette(lvl);
+
+  const blocks=[], coins=[], staticHaz=[], movingHaz=[], springs=[], movPlatsData=[];
+
+  // ── Start platform ──────────────────────────────────────────────────────────
+  const startW = Math.max(2, Math.round(lrp(4,2,d)));
+  for(let i=0;i<startW;i++) blocks.push({x:i,y:0,model:bModel});
+
+  let cx=startW-1, cy=0;
+  const numP   = Math.round(lrp(7,18,d));
+  const gapMax = Math.round(lrp(2,5,d));
+  const maxH   = Math.round(lrp(2,7,d));
+  const maxDy  = Math.max(1,Math.round(lrp(1,3,d)));
+
+  for(let i=0;i<numP;i++){
+    const gap = 2+Math.floor(rng()*Math.max(1,gapMax-1));
+    const nx  = cx+gap+1;
+
+    let dy = heightStep(style,i,numP,rng,maxDy);
+    cy = Math.max(0,Math.min(maxH,cy+dy));
+
+    const maxPW = Math.max(1,Math.round(lrp(3,1,d)));
+    const pw    = 1+Math.floor(rng()*maxPW);
+
+    // ── Moving platform? (level 25+) ────────────────────────────────────────
+    const movChance = lvl>=25 ? lrp(0,0.45,(d-0.24)/0.76) : 0;
+    if(rng()<movChance){
+      const range = lrp(1.2,3.5,d);
+      const speed = lrp(0.8,2.8,d);
+      const model = lvl>=55?'block-moving-blue':'block-moving';
+      movPlatsData.push({x:nx,y:cy,range,speed,model});
+      cx=nx;
+      continue;
+    }
+
+    // ── Static blocks ───────────────────────────────────────────────────────
+    for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy,model:bModel});
+
+    // ── Spring (level 10+, on at least 1-wide platforms) ───────────────────
+    if(lvl>=10 && rng()<lrp(0,0.30,d)){
+      springs.push({x:nx+Math.floor(pw/2), y:cy+1.0});
+    }
+
+    // ── Coins ───────────────────────────────────────────────────────────────
+    for(let j=0;j<pw;j++){
+      if(rng()<lrp(0.30,0.88,d)){
+        coins.push({x:nx+j, y:cy+1.8, model:pickCoin(rng,lvl)});
+      }
+    }
+
+    // ── Hazard ──────────────────────────────────────────────────────────────
+    const hazChance = lvl>=4 ? lrp(0,0.82,Math.max(0,(d-0.04)/0.96)) : 0;
+    if(pw>=2 && rng()<hazChance){
+      const htype = pickHazard(rng,lvl);
+      const hx    = nx+Math.floor(pw/2);
+      if(htype==='saw'){
+        const range = lrp(0.5, Math.min(pw-0.6, 2.5), rng());
+        movingHaz.push({x:hx, y:cy+0.85, range, speed:lrp(1,3.5,d)});
+      } else {
+        const hw = htype==='trap-spikes-large' ? 0.75 : 0.45;
+        staticHaz.push({x:hx, y:cy, model:htype, hw});
+      }
+    }
+
+    cx = nx+pw-1;
+  }
+
+  // ── End platform + flag ─────────────────────────────────────────────────────
+  const ex = cx+3;
+  const ey = Math.max(0,Math.min(3,cy+Math.round((rng()-.5)*2)));
+  for(let i=0;i<3;i++) blocks.push({x:ex+i,y:ey,model:bModel});
+
+  return {blocks,coins,staticHaz,movingHaz,springs,movPlatsData,flagX:ex+1,flagY:ey};
+}
+
+// ── Build / load level ────────────────────────────────────────────────────────
+function makeFallbackBlock(x,y,col=0x4caf50){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
+    new THREE.MeshStandardMaterial({color:col,roughness:.8}));
+  m.position.set(x,y+.5,0); m.castShadow=m.receiveShadow=true; return m;
+}
+
 function loadLevel(lvl){
-  // Clear previous
   while(lvlGroup.children.length) lvlGroup.remove(lvlGroup.children[0]);
-  boxes=[]; coinObjs=[]; hazardDefs=[]; lvlCoins=0; lvlDone=false; gameOver=false;
+  boxes=[]; coinObjs=[]; lvlCoins=0; lvlDone=false; gameOver=false;
+  movPlats=[]; sawObjs=[]; springPos=[];
 
-  const data=generateLevel(lvl);
-  const theme=getTheme(lvl);
+  const data  = generateLevel(lvl);
+  const theme = getTheme(lvl);
+  flagPos = {x:data.flagX, y:data.flagY};
 
-  hazardDefs=data.hazards;
-  flagPos={x:data.flagX,y:data.flagY};
-
-  // Apply theme to scene
-  scene.background=new THREE.Color(theme.sky);
+  scene.background = new THREE.Color(theme.sky);
   if(!scene.fog) scene.fog=new THREE.Fog(theme.fog,40,90);
-  else{ scene.fog.color.set(theme.fog); scene.fog.near=40; scene.fog.far=90; }
+  else { scene.fog.color.set(theme.fog); scene.fog.near=40; scene.fog.far=90; }
   ambient.color.set(theme.amb);
   sun.color.set(theme.sun);
 
-  // Blocks
-  for(const {x,y} of data.blocks){
-    boxes.push({minX:x-.5,maxX:x+.5,topY:y+1});
-    const m=cloneGLB(theme.block)||cloneGLB('block-grass');
-    if(m){ m.position.set(x,y,0); lvlGroup.add(m); }
-    else{
-      const fb=new THREE.Mesh(
-        new THREE.BoxGeometry(1,1,1),
-        new THREE.MeshStandardMaterial({color:0x4caf50,roughness:.8})
-      );
-      fb.position.set(x,y+.5,0); fb.castShadow=fb.receiveShadow=true;
-      lvlGroup.add(fb);
-    }
+  // ── Static blocks ───────────────────────────────────────────────────────────
+  for(const {x,y,model} of data.blocks){
+    boxes.push({minX:x-.5,maxX:x+.5,topY:y+1,moving:false});
+    const m=cloneGLB(model)||cloneGLB('block-grass')||makeFallbackBlock(x,y);
+    m.position.set(x,y,0); lvlGroup.add(m);
   }
 
-  // Coins
-  for(const [cx,cy] of data.coins){
-    let mesh=cloneGLB('coin-gold');
-    if(mesh){
-      mesh.position.set(cx,cy,0);
-    } else {
-      mesh=new THREE.Mesh(
-        new THREE.TorusGeometry(.18,.06,8,16),
-        new THREE.MeshStandardMaterial({color:0xffd700,emissive:0xffaa00,emissiveIntensity:.7,metalness:.8})
-      );
-      mesh.position.set(cx,cy,0);
-    }
-    lvlGroup.add(mesh);
-    coinObjs.push({mesh,x:cx,y:cy,collected:false});
+  // ── Moving platforms ─────────────────────────────────────────────────────────
+  for(const pd of data.movPlatsData){
+    const m=cloneGLB(pd.model)||cloneGLB('block-grass')||makeFallbackBlock(pd.x,pd.y,0x2255aa);
+    m.position.set(pd.x,pd.y,0); lvlGroup.add(m);
+    const boxIdx=boxes.length;
+    boxes.push({minX:pd.x-.5,maxX:pd.x+.5,topY:pd.y+1,moving:true});
+    movPlats.push({mesh:m,startX:pd.x,y:pd.y,range:pd.range,speed:pd.speed,t:0,boxIdx});
   }
 
-  // Hazards
-  for(const h of data.hazards){
-    const m=cloneGLB('trap-spikes');
-    if(m){ m.position.set(h.x,h.y,0); lvlGroup.add(m); }
-    else{
-      const fb=new THREE.Mesh(
-        new THREE.ConeGeometry(.25,.6,6),
-        new THREE.MeshStandardMaterial({color:0xff3333,emissive:0x880000,emissiveIntensity:.5})
-      );
-      fb.position.set(h.x,h.y+.3,0); lvlGroup.add(fb);
-    }
+  // ── Static hazards ──────────────────────────────────────────────────────────
+  for(const h of data.staticHaz){
+    const m=cloneGLB(h.model)||makeFallbackCone(h.x,h.y);
+    m.position.set(h.x,h.y,0); lvlGroup.add(m);
+    // stored as hazard for collision
+    boxes.push({minX:h.x-h.hw,maxX:h.x+h.hw,topY:h.y+0.9,moving:false,isHazard:true});
   }
 
-  // Flag
+  // ── Saw hazards (oscillate) ──────────────────────────────────────────────────
+  for(const s of data.movingHaz){
+    const m=cloneGLB('saw')||makeFallbackCone(s.x,s.y,0xff0000);
+    m.position.set(s.x,s.y,0); lvlGroup.add(m);
+    sawObjs.push({mesh:m,startX:s.x,y:s.y,range:s.range,speed:s.speed,t:Math.random()*Math.PI*2});
+  }
+
+  // ── Springs ─────────────────────────────────────────────────────────────────
+  for(const sp of data.springs){
+    const m=cloneGLB('spring')||makeFallbackSpring(sp.x,sp.y);
+    m.position.set(sp.x,sp.y,0); lvlGroup.add(m);
+    springPos.push({x:sp.x,y:sp.y});
+  }
+
+  // ── Coins ────────────────────────────────────────────────────────────────────
+  for(const c of data.coins){
+    let mesh=cloneGLB(c.model)||cloneGLB('coin-gold');
+    if(!mesh){
+      mesh=new THREE.Mesh(new THREE.TorusGeometry(.18,.06,8,16),
+        new THREE.MeshStandardMaterial({color:0xffd700,emissive:0xffaa00,emissiveIntensity:.7}));
+    }
+    mesh.position.set(c.x,c.y,0); lvlGroup.add(mesh);
+    const val = c.model==='jewel'?3 : c.model==='coin-silver'?2 : 1;
+    coinObjs.push({mesh,x:c.x,y:c.y,collected:false,val});
+  }
+
+  // ── Flag ─────────────────────────────────────────────────────────────────────
   const flagM=cloneGLB('flag');
   if(flagM){ flagM.position.set(flagPos.x,flagPos.y,0); lvlGroup.add(flagM); }
-  else{
+  else {
     const g=new THREE.Group();
-    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,1.8,6),
-      new THREE.MeshStandardMaterial({color:0x888888}));
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,1.8,6),new THREE.MeshStandardMaterial({color:0x888}));
     pole.position.y=flagPos.y+.9;
-    const flag=new THREE.Mesh(new THREE.PlaneGeometry(.55,.38),
-      new THREE.MeshStandardMaterial({color:0x00cc44,side:THREE.DoubleSide}));
-    flag.position.set(.27,flagPos.y+1.65,0);
-    g.position.x=flagPos.x; g.add(pole,flag); lvlGroup.add(g);
+    const fq=new THREE.Mesh(new THREE.PlaneGeometry(.55,.38),new THREE.MeshStandardMaterial({color:0x00cc44,side:THREE.DoubleSide}));
+    fq.position.set(.27,flagPos.y+1.65,0);
+    g.position.x=flagPos.x; g.add(pole,fq); lvlGroup.add(g);
   }
 
-  // Decorative trees
-  const treeRng=makeRng(lvl+9999);
-  const treeCount=3+Math.floor(treeRng()*3);
-  for(let t=0;t<treeCount;t++){
-    const tr=cloneGLB('tree-pine-small'); if(!tr) break;
-    const rx=Math.floor(treeRng()*(data.flagX+4));
-    tr.position.set(rx,0,1.5+(treeRng()*.5)); lvlGroup.add(tr);
+  // ── Decorations (trees, barrels, crates) ────────────────────────────────────
+  const dRng=makeRng(lvl+77777);
+  const treeModel = lvl>40 ? 'tree-pine-small' : 'tree-pine-small';
+  const decorModels=['tree-pine-small','barrel','crate','rocks','mushrooms'];
+  for(let i=0;i<4+Math.floor(dRng()*3);i++){
+    const dname=decorModels[Math.floor(dRng()*decorModels.length)];
+    const dm=cloneGLB(dname); if(!dm) continue;
+    const rx=Math.floor(dRng()*(data.flagX+3));
+    const rz=1.5+dRng()*1.5;
+    dm.position.set(rx,0,rz); lvlGroup.add(dm);
   }
 
   // Reset player
   lives=3;
   ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;ps.onGround=false;ps.inv=0;ps.facing=1;
-
   hideOverlay(); updateHUD();
+}
+
+function makeFallbackCone(x,y,col=0xff3333){
+  const m=new THREE.Mesh(new THREE.ConeGeometry(.25,.6,6),
+    new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.4}));
+  m.position.set(x,y+.3,0); return m;
+}
+function makeFallbackSpring(x,y){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(.2,.25,.5,8),
+    new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:.8,roughness:.2}));
+  m.position.set(x,y+.25,0); return m;
 }
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
@@ -564,6 +631,21 @@ function showDead(){
 
 // ── Physics tick ──────────────────────────────────────────────────────────────
 function tick(dt){
+  // Animate moving platforms (update AABB before collision)
+  for(const mp of movPlats){
+    mp.t+=dt*mp.speed;
+    const nx=mp.startX+Math.sin(mp.t)*mp.range;
+    mp.mesh.position.x=nx;
+    const b=boxes[mp.boxIdx];
+    b.minX=nx-.5; b.maxX=nx+.5;
+  }
+  // Animate saws (position + spin)
+  for(const s of sawObjs){
+    s.t+=dt*s.speed;
+    s.mesh.position.x=s.startX+Math.sin(s.t)*s.range;
+    s.mesh.rotation.z-=dt*5;
+  }
+
   const L=keys['KeyA']||keys['ArrowLeft'];
   const R=keys['KeyD']||keys['ArrowRight'];
   const J=keys['KeyW']||keys['ArrowUp']||keys['Space'];
@@ -579,24 +661,42 @@ function tick(dt){
   ps.y+=ps.vy*dt;
   if(ps.x<0){ps.x=0;ps.vx=0;}
 
-  // Platform collision
+  // Platform collision (skip hazard boxes)
   ps.onGround=false;
   for(const b of boxes){
+    if(b.isHazard) continue;
     if(ps.x+PW<b.minX||ps.x-PW>b.maxX) continue;
     if(ps.vy<=0&&ps.y<=b.topY&&ps.y>=b.topY-.55){
       ps.y=b.topY;ps.vy=0;ps.onGround=true;
     }
   }
 
+  // Spring bounce
+  for(const sp of springPos){
+    if(Math.abs(ps.x-sp.x)<.55&&ps.y<=sp.y+1.1&&ps.y>=sp.y-.1&&ps.vy<=0){
+      ps.vy=JUMP_V*1.65; ps.onGround=false; break;
+    }
+  }
+
   // Fell off
   if(ps.y<-8){damage();ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;}
 
-  // Hazards
+  // Static hazard collision (spikes, spike-block)
   if(ps.inv<=0){
-    for(const h of hazardDefs){
-      if(Math.abs(ps.x-h.x)<.5&&ps.y<=h.y+.9&&ps.y>=h.y-.1){damage();break;}
+    for(const b of boxes){
+      if(!b.isHazard) continue;
+      if(ps.x+PW>b.minX&&ps.x-PW<b.maxX&&ps.y<b.topY&&ps.y>b.topY-1.2){damage();break;}
     }
   }
+
+  // Saw collision
+  if(ps.inv<=0){
+    for(const s of sawObjs){
+      const sx=s.mesh.position.x;
+      if(Math.abs(ps.x-sx)<.45&&ps.y<=s.y+0.9&&ps.y>=s.y-0.3){damage();break;}
+    }
+  }
+
   if(ps.inv>0) ps.inv-=dt;
 
   // Coins
@@ -613,7 +713,7 @@ function tick(dt){
     lvlDone=true; showComplete();
   }
 
-  // Update player
+  // Update player mesh
   player.position.set(ps.x,ps.y,0);
   player.rotation.y=ps.facing===1?0:Math.PI;
   player.visible=ps.inv<=0||Math.floor(ps.inv*8)%2===0;
@@ -644,7 +744,14 @@ function loop(now){
 requestAnimationFrame(loop);
 
 // ── Startup ───────────────────────────────────────────────────────────────────
-const PRELOAD=['block-grass','block-snow','coin-gold','flag','trap-spikes','tree-pine-small'];
+const PRELOAD=[
+  'block-grass','block-grass-low','block-grass-large',
+  'block-snow','block-snow-low',
+  'block-moving','block-moving-blue',
+  'coin-gold','coin-silver','coin-bronze','jewel',
+  'flag','trap-spikes','trap-spikes-large','spike-block','saw','spring',
+  'tree-pine-small','barrel','crate','rocks','mushrooms'
+];
 
 const loadBar  = document.getElementById('load-bar');
 const loadText = document.getElementById('load-text');
