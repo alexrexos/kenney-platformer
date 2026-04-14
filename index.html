@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kenney Platformer</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; font-family:'Segoe UI',Arial,sans-serif; }
+canvas { display:block; }
+
+/* ── HUD ── */
+#hud {
+  position:fixed; top:0; left:0; right:0; padding:14px 18px;
+  display:flex; justify-content:space-between; align-items:flex-start;
+  pointer-events:none; z-index:10;
+}
+#hud-left  { color:#fff; text-shadow:1px 2px 5px #000; font-size:17px; line-height:1.7; }
+#hud-mid   { color:#fff; text-shadow:0 2px 8px #000; font-size:26px; font-weight:bold; text-align:center; }
+#hud-mid small { display:block; font-size:13px; font-weight:normal; opacity:.7; margin-top:2px; }
+#hud-right { pointer-events:all; }
+
+#char-btn {
+  background:rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.3);
+  color:#fff; padding:9px 16px; border-radius:10px; font-size:15px; cursor:pointer;
+  backdrop-filter:blur(6px); transition:background .2s;
+  display:flex; align-items:center; gap:7px;
+}
+#char-btn:hover { background:rgba(255,255,255,0.22); }
+
+/* ── Character panel ── */
+#char-panel {
+  position:fixed; top:0; right:-300px; width:285px; height:100vh;
+  background:rgba(8,16,32,0.97); border-left:1px solid rgba(255,255,255,0.1);
+  backdrop-filter:blur(12px); transition:right .28s cubic-bezier(.4,0,.2,1);
+  z-index:200; padding:18px 14px 18px; display:flex; flex-direction:column; gap:10px;
+  overflow-y:auto;
+}
+#char-panel.open { right:0; }
+#char-panel h2 { color:#fff; font-size:19px; margin-bottom:4px; }
+#char-panel .close-btn {
+  position:absolute; top:14px; right:14px; background:none; border:none;
+  color:rgba(255,255,255,0.5); font-size:22px; cursor:pointer; line-height:1;
+}
+#char-panel .close-btn:hover { color:#fff; }
+.char-card {
+  display:flex; align-items:center; gap:12px; padding:11px 13px;
+  border-radius:12px; cursor:pointer;
+  background:rgba(255,255,255,0.05); border:2px solid transparent;
+  transition:all .18s;
+}
+.char-card:hover  { background:rgba(255,255,255,0.12); }
+.char-card.active { border-color:#f1c40f; background:rgba(241,196,15,0.13); }
+.char-thumb {
+  width:64px; height:64px; border-radius:8px; overflow:hidden;
+  background:#111; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  font-size:32px;
+}
+.char-thumb canvas { width:64px!important; height:64px!important; }
+.char-info { color:#fff; }
+.char-info .cname { font-size:16px; font-weight:bold; }
+.char-info .cdesc { font-size:12px; opacity:.55; margin-top:2px; }
+.check { margin-left:auto; color:#f1c40f; font-size:20px; opacity:0; }
+.char-card.active .check { opacity:1; }
+
+/* ── Overlay (level complete / game over) ── */
+#overlay {
+  position:fixed; inset:0; display:none;
+  align-items:center; justify-content:center;
+  background:rgba(0,0,0,0.65); z-index:300;
+}
+#card {
+  background:linear-gradient(145deg,#1a2a4a,#0d1a30);
+  border:2px solid rgba(255,255,255,0.13); border-radius:22px;
+  padding:44px 60px; text-align:center; color:#fff; min-width:360px;
+}
+#card .badge { font-size:64px; font-weight:bold; color:#f1c40f; line-height:1; margin-bottom:8px; }
+#card h1   { font-size:38px; margin-bottom:8px; }
+#card .sub { font-size:17px; opacity:.7; margin-bottom:20px; }
+#card .stat{ font-size:20px; margin-bottom:5px; }
+.btn {
+  display:inline-block; margin:8px 5px 0; padding:12px 34px;
+  font-size:17px; font-weight:bold; border:none; border-radius:10px;
+  cursor:pointer; transition:transform .1s;
+}
+.btn:hover { transform:scale(1.06); }
+.btn-next   { background:#27ae60; color:#fff; }
+.btn-retry  { background:#e74c3c; color:#fff; }
+.btn-replay { background:#3498db; color:#fff; }
+
+/* ── Controls hint ── */
+#ctrl { position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
+  color:rgba(255,255,255,0.5); font-size:12px; pointer-events:none; z-index:10; }
+
+/* ── Loading ── */
+#loading {
+  position:fixed; inset:0; background:#0d1a30;
+  display:flex; align-items:center; justify-content:center;
+  color:#fff; font-size:26px; letter-spacing:3px; z-index:999;
+}
+</style>
+</head>
+<body>
+
+<div id="loading">Loading…</div>
+
+<div id="hud">
+  <div id="hud-left">
+    <div id="ui-coins">Coins: 0</div>
+    <div id="ui-total" style="font-size:14px;opacity:.7"></div>
+    <div id="ui-lives">❤️❤️❤️</div>
+  </div>
+  <div id="hud-mid">
+    <div id="ui-level">Level 1</div>
+    <small id="ui-prog">1 / 100</small>
+  </div>
+  <div id="hud-right">
+    <button id="char-btn" onclick="toggleCharPanel()">🧑 Characters</button>
+  </div>
+</div>
+
+<!-- Character selection sidebar -->
+<div id="char-panel">
+  <button class="close-btn" onclick="toggleCharPanel()">✕</button>
+  <h2>Choose Character</h2>
+  <div id="char-list"></div>
+</div>
+
+<!-- Level complete / game over overlay -->
+<div id="overlay" style="display:none">
+  <div id="card"></div>
+</div>
+
+<div id="ctrl">A / D — move &nbsp;|&nbsp; W / Space — jump &nbsp;|&nbsp; Reach the flag!</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three":         "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const MAX_LEVELS = 100;
+const BASE = 'assets/Models/GLB%20format/';
+
+// ── Characters catalogue ───────────────────────────────────────────────────────
+const CHARS = [
+  { key:'character-oozi', name:'Oozi',  desc:'The classic blue blob', emoji:'💙', color:'#2196F3', fb:{body:0x2196F3,head:0x55ddff} },
+  { key:'character-oobi', name:'Oobi',  desc:'Fiery orange alien',    emoji:'🧡', color:'#FF5722', fb:{body:0xFF5722,head:0xFF8A65} },
+  { key:'character-oodi', name:'Oodi',  desc:'Sunny yellow explorer', emoji:'💛', color:'#FFC107', fb:{body:0xFFC107,head:0xFFE082} },
+  { key:'character-ooli', name:'Ooli',  desc:'Cool green creature',   emoji:'💚', color:'#4CAF50', fb:{body:0x4CAF50,head:0x81C784} },
+  { key:'character-oopi', name:'Oopi',  desc:'Mysterious pink alien', emoji:'💜', color:'#E91E63', fb:{body:0xE91E63,head:0xF48FB1} },
+];
+let selectedCharKey = localStorage.getItem('selectedChar') || 'character-oozi';
+
+// ── Three.js setup ────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(3,5,14);
+
+const sun = new THREE.DirectionalLight(0xfffae0, 2.5);
+sun.position.set(10,30,10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-40; sun.shadow.camera.right=40;
+sun.shadow.camera.top=20;   sun.shadow.camera.bottom=-20;
+sun.shadow.camera.far=80;
+scene.add(sun);
+const ambient = new THREE.AmbientLight(0x9ab4d8,1.3);
+scene.add(ambient);
+
+// (no secondary renderer needed)
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+const keys={};
+addEventListener('keydown', e=>{ keys[e.code]=true; });
+addEventListener('keyup',   e=>{ keys[e.code]=false; });
+
+// ── Game state ────────────────────────────────────────────────────────────────
+let level=1, totalCoins=0, lvlCoins=0, lives=3, gameOver=false, lvlDone=false;
+const GRAVITY=-22, JUMP_V=10, MOVE_V=6, PW=0.35;
+const ps = { x:1,y:2,vx:0,vy:0,onGround:false,facing:1,inv:0 };
+let boxes=[], coinObjs=[], hazardDefs=[], flagPos={x:0,y:0};
+
+const lvlGroup = new THREE.Group(); scene.add(lvlGroup);
+
+// ── Player visual ─────────────────────────────────────────────────────────────
+const player = new THREE.Group(); scene.add(player);
+let activeCharScene = null; // cached scene currently parented to player
+
+// Build a coloured capsule+head fallback (always visible, no GLB needed)
+function buildFallback(charDef) {
+  // Remove any live GLB character first
+  if (activeCharScene) { player.remove(activeCharScene); activeCharScene = null; }
+  player.clear();
+  const c = charDef.fb;
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(.28,.55,4,8),
+    new THREE.MeshStandardMaterial({color:c.body,emissive:new THREE.Color(c.body).multiplyScalar(.25),emissiveIntensity:.6})
+  );
+  body.position.y=.55; body.castShadow=true;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(.28,12,8),
+    new THREE.MeshStandardMaterial({color:c.head,emissive:new THREE.Color(c.head).multiplyScalar(.25),emissiveIntensity:.6})
+  );
+  head.position.y=1.12; head.castShadow=true;
+  const em=new THREE.MeshStandardMaterial({color:0x111111});
+  const eg=new THREE.SphereGeometry(.07,6,6);
+  const eyeL=new THREE.Mesh(eg,em); eyeL.position.set( .12,1.2,.22);
+  const eyeR=new THREE.Mesh(eg,em); eyeR.position.set(-.12,1.2,.22);
+  player.add(body,head,eyeL,eyeR);
+}
+
+// Apply a loaded GLB character scene directly (no clone — one player, one scene)
+function applyCharMesh(scene3) {
+  if (!scene3) return;
+  // Detach previous GLB if any
+  if (activeCharScene) {
+    player.remove(activeCharScene);
+    activeCharScene.scale.set(1,1,1);
+    activeCharScene.position.set(0,0,0);
+    activeCharScene = null;
+  }
+  // Clear fallback shapes from player group
+  player.clear();
+
+  // Measure geometry bounds to auto-scale and center
+  scene3.scale.set(1,1,1);
+  scene3.position.set(0,0,0);
+  const box = new THREE.Box3().setFromObject(scene3);
+  const sz  = new THREE.Vector3(); box.getSize(sz);
+  const sc  = sz.y > 0.05 ? 1.2 / sz.y : 0.5;
+  scene3.scale.setScalar(sc);
+  const box2 = new THREE.Box3().setFromObject(scene3);
+  scene3.position.set(
+    -((box2.min.x+box2.max.x)/2),
+    -box2.min.y,
+    -((box2.min.z+box2.max.z)/2)
+  );
+
+  // Force materials visible and double-sided
+  scene3.traverse(n => {
+    if (!n.isMesh) return;
+    n.castShadow = true; n.visible = true;
+    const mats = Array.isArray(n.material)?n.material:[n.material];
+    mats.forEach(m=>{
+      m.side=THREE.DoubleSide; m.transparent=false; m.opacity=1; m.depthWrite=true;
+      if(m.emissive) { m.emissive.set(0x333333); m.emissiveIntensity=0.5; }
+    });
+  });
+
+  activeCharScene = scene3;
+  player.add(scene3);
+}
+
+// ── GLB cache ─────────────────────────────────────────────────────────────────
+const loader = new GLTFLoader();
+const glbCache = {};
+
+function loadGLB(name) {
+  if (glbCache[name]) return Promise.resolve(glbCache[name]);
+  return new Promise(res=>{
+    loader.load(BASE+name+'.glb', g=>{
+      g.scene.traverse(n=>{ if(n.isMesh){n.castShadow=true;n.receiveShadow=true;} });
+      glbCache[name]=g.scene; res(g.scene);
+    }, undefined, e=>{ console.warn('GLB:',name,e); res(null); });
+  });
+}
+
+function cloneGLB(name) {
+  const s=glbCache[name]; if(!s) return null;
+  const c=s.clone(true);
+  c.traverse(n=>{ if(n.isMesh){n.castShadow=true;n.receiveShadow=true;} });
+  return c;
+}
+
+// ── Character panel ───────────────────────────────────────────────────────────
+let panelOpen = false;
+window.toggleCharPanel = () => {
+  panelOpen = !panelOpen;
+  document.getElementById('char-panel').classList.toggle('open', panelOpen);
+};
+
+function buildCharPanel() {
+  const list = document.getElementById('char-list');
+  list.innerHTML = '';
+  for (const ch of CHARS) {
+    const card = document.createElement('div');
+    card.className = 'char-card' + (ch.key===selectedCharKey?' active':'');
+    card.dataset.key = ch.key;
+    // Coloured circle thumb (no 3D rendering needed)
+    const thumb = document.createElement('div');
+    thumb.className = 'char-thumb';
+    thumb.style.cssText = `background:${ch.color};font-size:32px;line-height:64px;text-align:center;`;
+    thumb.textContent = ch.emoji;
+    card.appendChild(thumb);
+    const info = document.createElement('div');
+    info.className = 'char-info';
+    info.innerHTML = `<div class="cname">${ch.name}</div><div class="cdesc">${ch.desc}</div>`;
+    card.appendChild(info);
+    const chk = document.createElement('div');
+    chk.className = 'check'; chk.textContent = '✓';
+    card.appendChild(chk);
+    card.addEventListener('click', ()=>selectChar(ch.key));
+    list.appendChild(card);
+  }
+}
+
+async function selectChar(key) {
+  selectedCharKey = key;
+  localStorage.setItem('selectedChar', key);
+  document.querySelectorAll('.char-card').forEach(c=>{
+    c.classList.toggle('active', c.dataset.key===key);
+  });
+  const charDef = CHARS.find(c=>c.key===key);
+  buildFallback(charDef);               // show coloured blob instantly
+  const scene3 = await loadGLB(key);
+  if (scene3) applyCharMesh(scene3);    // swap in real model when ready
+}
+
+// ── Themes ────────────────────────────────────────────────────────────────────
+const THEMES=[
+  {sky:0x87ceeb,fog:0x87ceeb,amb:0x9ab4d8,sun:0xfffae0,block:'block-grass'},
+  {sky:0xb0d4f0,fog:0xb0d4f0,amb:0xaabdd0,sun:0xfff0e0,block:'block-snow' },
+  {sky:0xff9060,fog:0xdd6030,amb:0xdd8860,sun:0xffcc80,block:'block-grass' },
+  {sky:0x0f1e36,fog:0x060e1a,amb:0x304060,sun:0x8090c0,block:'block-snow' },
+  {sky:0xf5c8e0,fog:0xe0a8c0,amb:0xd0a0c0,sun:0xffe8f0,block:'block-grass' },
+];
+function getTheme(lvl){ return THEMES[Math.floor((lvl-1)/20)%THEMES.length]; }
+
+// ── Seeded RNG ────────────────────────────────────────────────────────────────
+function makeRng(seed){
+  let s=(seed*2654435761)>>>0;
+  return ()=>{
+    s=(s+0x6D2B79F5)>>>0;
+    let t=Math.imul(s^s>>>15,1|s);
+    t=(t+Math.imul(t^t>>>7,61|t))^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function lrp(a,b,t){return a+(b-a)*Math.min(1,Math.max(0,t));}
+
+// ── Level generator ───────────────────────────────────────────────────────────
+// Returns { blocks:[{x,y}], coins:[[x,y]], hazards:[{x,y}], flagX, flagY }
+function generateLevel(lvl){
+  const rng=makeRng(lvl);
+  const d=(lvl-1)/(MAX_LEVELS-1); // 0→1
+
+  // Pick a layout style that makes each level feel distinct
+  const style=Math.floor(rng()*5);
+  // 0=zigzag  1=staircase up  2=staircase down+up  3=random  4=valley
+
+  const blocks=[], coins=[], hazards=[];
+
+  // Start platform (always 3-4 blocks, always at y=0)
+  const startW=Math.max(3,Math.round(lrp(4,2,d)));
+  for(let i=0;i<startW;i++) blocks.push({x:i,y:0});
+
+  let cx=startW-1, cy=0;
+  const numP=Math.round(lrp(7,17,d));   // 7→17 platforms
+  const gapMax=Math.round(lrp(2,5,d));  // gap grows
+  const maxH=Math.round(lrp(2,6,d));    // height ceiling grows
+  const maxDy=Math.max(1,Math.round(lrp(1,3,d))); // height step grows
+
+  for(let i=0;i<numP;i++){
+    const t=i/numP; // progress 0→1 within level
+    const gap=2+Math.floor(rng()*(gapMax-1));
+    const nx=cx+gap+1;
+
+    // Height delta based on style
+    let dy=0;
+    switch(style){
+      case 0: // zigzag — alternating up/down
+        dy = (i%2===0?1:-1)*Math.max(1,Math.floor(rng()*maxDy+.5));
+        break;
+      case 1: // staircase — keeps going up with occasional dip
+        dy = rng()<.75 ? Math.ceil(rng()*maxDy) : -1;
+        break;
+      case 2: // valley — goes down first half, up second
+        dy = t<.5 ? -Math.ceil(rng()*maxDy) : Math.ceil(rng()*maxDy);
+        break;
+      case 3: // purely random
+        dy = Math.round((rng()*2-1)*maxDy);
+        break;
+      case 4: // mostly flat with occasional big jump
+        dy = rng()<.3 ? Math.round((rng()*2-1)*maxDy*1.5) : 0;
+        break;
+    }
+    cy=Math.max(0,Math.min(maxH,cy+dy));
+
+    const maxPW=Math.max(1,Math.round(lrp(3,1,d)));
+    const pw=1+Math.floor(rng()*maxPW);
+
+    for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy});
+
+    // Coins above platform (more coins at higher difficulty to reward skill)
+    for(let j=0;j<pw;j++){
+      if(rng()<lrp(.35,.85,d)) coins.push([nx+j, cy+1.8]);
+    }
+
+    // Spike hazard (starts at level 4, increases with difficulty)
+    if(lvl>=4 && pw>=2 && rng()<lrp(0,.7,Math.max(0,(d-.1)/.9))){
+      hazards.push({x:nx+Math.floor(pw/2), y:cy});
+    }
+
+    cx=nx+pw-1;
+  }
+
+  // End platform + flag (always safely reachable — small fixed gap)
+  const ex=cx+3;
+  const ey=Math.max(0,Math.min(3,cy+Math.round((rng()-.5)*2)));
+  for(let i=0;i<3;i++) blocks.push({x:ex+i,y:ey});
+
+  return {blocks,coins,hazards,flagX:ex+1,flagY:ey};
+}
+
+// ── Build / load level ─────────────────────────────────────────────────────────
+function loadLevel(lvl){
+  // Clear previous
+  while(lvlGroup.children.length) lvlGroup.remove(lvlGroup.children[0]);
+  boxes=[]; coinObjs=[]; hazardDefs=[]; lvlCoins=0; lvlDone=false; gameOver=false;
+
+  const data=generateLevel(lvl);
+  const theme=getTheme(lvl);
+
+  hazardDefs=data.hazards;
+  flagPos={x:data.flagX,y:data.flagY};
+
+  // Apply theme to scene
+  scene.background=new THREE.Color(theme.sky);
+  if(!scene.fog) scene.fog=new THREE.Fog(theme.fog,40,90);
+  else{ scene.fog.color.set(theme.fog); scene.fog.near=40; scene.fog.far=90; }
+  ambient.color.set(theme.amb);
+  sun.color.set(theme.sun);
+
+  // Blocks
+  for(const {x,y} of data.blocks){
+    boxes.push({minX:x-.5,maxX:x+.5,topY:y+1});
+    const m=cloneGLB(theme.block)||cloneGLB('block-grass');
+    if(m){ m.position.set(x,y,0); lvlGroup.add(m); }
+    else{
+      const fb=new THREE.Mesh(
+        new THREE.BoxGeometry(1,1,1),
+        new THREE.MeshStandardMaterial({color:0x4caf50,roughness:.8})
+      );
+      fb.position.set(x,y+.5,0); fb.castShadow=fb.receiveShadow=true;
+      lvlGroup.add(fb);
+    }
+  }
+
+  // Coins
+  for(const [cx,cy] of data.coins){
+    let mesh=cloneGLB('coin-gold');
+    if(mesh){
+      mesh.position.set(cx,cy,0);
+    } else {
+      mesh=new THREE.Mesh(
+        new THREE.TorusGeometry(.18,.06,8,16),
+        new THREE.MeshStandardMaterial({color:0xffd700,emissive:0xffaa00,emissiveIntensity:.7,metalness:.8})
+      );
+      mesh.position.set(cx,cy,0);
+    }
+    lvlGroup.add(mesh);
+    coinObjs.push({mesh,x:cx,y:cy,collected:false});
+  }
+
+  // Hazards
+  for(const h of data.hazards){
+    const m=cloneGLB('trap-spikes');
+    if(m){ m.position.set(h.x,h.y,0); lvlGroup.add(m); }
+    else{
+      const fb=new THREE.Mesh(
+        new THREE.ConeGeometry(.25,.6,6),
+        new THREE.MeshStandardMaterial({color:0xff3333,emissive:0x880000,emissiveIntensity:.5})
+      );
+      fb.position.set(h.x,h.y+.3,0); lvlGroup.add(fb);
+    }
+  }
+
+  // Flag
+  const flagM=cloneGLB('flag');
+  if(flagM){ flagM.position.set(flagPos.x,flagPos.y,0); lvlGroup.add(flagM); }
+  else{
+    const g=new THREE.Group();
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,1.8,6),
+      new THREE.MeshStandardMaterial({color:0x888888}));
+    pole.position.y=flagPos.y+.9;
+    const flag=new THREE.Mesh(new THREE.PlaneGeometry(.55,.38),
+      new THREE.MeshStandardMaterial({color:0x00cc44,side:THREE.DoubleSide}));
+    flag.position.set(.27,flagPos.y+1.65,0);
+    g.position.x=flagPos.x; g.add(pole,flag); lvlGroup.add(g);
+  }
+
+  // Decorative trees
+  const treeRng=makeRng(lvl+9999);
+  const treeCount=3+Math.floor(treeRng()*3);
+  for(let t=0;t<treeCount;t++){
+    const tr=cloneGLB('tree-pine-small'); if(!tr) break;
+    const rx=Math.floor(treeRng()*(data.flagX+4));
+    tr.position.set(rx,0,1.5+(treeRng()*.5)); lvlGroup.add(tr);
+  }
+
+  // Reset player
+  ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;ps.onGround=false;ps.inv=0;ps.facing=1;
+
+  hideOverlay(); updateHUD();
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+function updateHUD(){
+  document.getElementById('ui-level').textContent=`Level ${level}`;
+  document.getElementById('ui-prog').textContent=`${level} / ${MAX_LEVELS}`;
+  document.getElementById('ui-coins').textContent=`Coins: ${lvlCoins}`;
+  document.getElementById('ui-total').textContent=totalCoins?`Total: ${totalCoins}`:'';
+  document.getElementById('ui-lives').textContent='❤️'.repeat(Math.max(0,lives));
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+function showOverlay(html){ document.getElementById('card').innerHTML=html; document.getElementById('overlay').style.display='flex'; }
+function hideOverlay(){ document.getElementById('overlay').style.display='none'; }
+
+window.nextLevel=()=>{ level++; loadLevel(level); };
+
+function showComplete(){
+  const isLast=level>=MAX_LEVELS;
+  showOverlay(`
+    <div class="badge">${isLast?'🏆':level}</div>
+    <h1 style="color:#f1c40f">${isLast?'You Beat All 100 Levels!':'Level '+level+' Complete!'}</h1>
+    <div class="sub">${isLast?"You're a platforming legend!":'Keep going!'}</div>
+    <div class="stat">Coins this level: ${lvlCoins}</div>
+    <div class="stat">Total coins: ${totalCoins}</div><br>
+    ${isLast
+      ?`<button class="btn btn-replay" onclick="location.reload()">Play Again</button>`
+      :`<button class="btn btn-next" onclick="nextLevel()">Level ${level+1} →</button>`}
+  `);
+}
+
+function showDead(){
+  showOverlay(`
+    <h1 style="color:#e74c3c">Game Over</h1>
+    <div class="sub">Fell on level ${level}</div>
+    <div class="stat">Total coins: ${totalCoins}</div>
+    <div class="stat">Levels cleared: ${level-1}</div><br>
+    <button class="btn btn-retry" onclick="location.reload()">Try Again</button>
+  `);
+}
+
+// ── Physics tick ──────────────────────────────────────────────────────────────
+function tick(dt){
+  const L=keys['KeyA']||keys['ArrowLeft'];
+  const R=keys['KeyD']||keys['ArrowRight'];
+  const J=keys['KeyW']||keys['ArrowUp']||keys['Space'];
+
+  if(L){ps.vx=-MOVE_V;ps.facing=-1;}
+  else if(R){ps.vx=MOVE_V;ps.facing=1;}
+  else ps.vx*=.72;
+
+  if(J&&ps.onGround){ps.vy=JUMP_V;ps.onGround=false;}
+
+  ps.vy+=GRAVITY*dt;
+  ps.x+=ps.vx*dt;
+  ps.y+=ps.vy*dt;
+  if(ps.x<0){ps.x=0;ps.vx=0;}
+
+  // Platform collision
+  ps.onGround=false;
+  for(const b of boxes){
+    if(ps.x+PW<b.minX||ps.x-PW>b.maxX) continue;
+    if(ps.vy<=0&&ps.y<=b.topY&&ps.y>=b.topY-.55){
+      ps.y=b.topY;ps.vy=0;ps.onGround=true;
+    }
+  }
+
+  // Fell off
+  if(ps.y<-8){damage();ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;}
+
+  // Hazards
+  if(ps.inv<=0){
+    for(const h of hazardDefs){
+      if(Math.abs(ps.x-h.x)<.5&&ps.y<=h.y+.9&&ps.y>=h.y-.1){damage();break;}
+    }
+  }
+  if(ps.inv>0) ps.inv-=dt;
+
+  // Coins
+  for(const c of coinObjs){
+    if(c.collected) continue;
+    if(Math.abs(ps.x-c.x)<.6&&Math.abs(ps.y-c.y)<.8){
+      c.collected=true; lvlGroup.remove(c.mesh);
+      lvlCoins++; totalCoins++; updateHUD();
+    }
+  }
+
+  // Flag
+  if(!lvlDone&&Math.abs(ps.x-flagPos.x)<1.2&&ps.y<=flagPos.y+2.5&&ps.y>=flagPos.y-.5){
+    lvlDone=true; showComplete();
+  }
+
+  // Update player
+  player.position.set(ps.x,ps.y,0);
+  player.rotation.y=ps.facing===1?0:Math.PI;
+  player.visible=ps.inv<=0||Math.floor(ps.inv*8)%2===0;
+}
+
+function damage(){
+  if(ps.inv>0) return;
+  lives--;ps.inv=2;ps.vy=5;updateHUD();
+  if(lives<=0){gameOver=true;showDead();}
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+let last=performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-last)/1e3,.05); last=now;
+
+  if(!gameOver&&!lvlDone) tick(dt);
+  for(const c of coinObjs) if(!c.collected) c.mesh.rotation.y+=2.5*dt;
+
+  camera.position.x+=(ps.x+2-camera.position.x)*.1;
+  camera.position.y+=(ps.y+4-camera.position.y)*.1;
+  camera.position.z=14;
+  camera.lookAt(ps.x,ps.y+.8,0);
+
+  renderer.render(scene,camera);
+}
+requestAnimationFrame(loop);
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+const PRELOAD=['block-grass','block-snow','coin-gold','flag','trap-spikes','tree-pine-small'];
+
+Promise.all(PRELOAD.map(loadGLB)).then(async ()=>{
+  document.getElementById('loading').style.display='none';
+
+  // Show coloured fallback character immediately
+  const charDef = CHARS.find(c=>c.key===selectedCharKey)||CHARS[0];
+  buildFallback(charDef);
+  buildCharPanel();
+
+  loadLevel(1);
+
+  // Load GLB character in background — swaps in when ready
+  loadGLB(selectedCharKey).then(s=>{ if(s) applyCharMesh(s); });
+  // Preload remaining characters in background
+  for(const ch of CHARS) if(ch.key!==selectedCharKey) loadGLB(ch.key);
+}).catch(err=>{
+  console.error('Startup error:', err);
+  document.getElementById('loading').textContent='Error loading — check console';
+});
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
