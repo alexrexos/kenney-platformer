@@ -94,14 +94,19 @@ canvas { display:block; }
 /* ── Loading ── */
 #loading {
   position:fixed; inset:0; background:#0d1a30;
-  display:flex; align-items:center; justify-content:center;
-  color:#fff; font-size:26px; letter-spacing:3px; z-index:999;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  color:#fff; font-size:22px; letter-spacing:2px; z-index:999; gap:20px;
 }
+#load-bar-wrap { width:260px; height:10px; background:rgba(255,255,255,.15); border-radius:8px; overflow:hidden; }
+#load-bar { height:100%; width:0%; background:#f1c40f; border-radius:8px; transition:width .2s; }
 </style>
 </head>
 <body>
 
-<div id="loading">Loading…</div>
+<div id="loading">
+  <div id="load-text">Loading assets…</div>
+  <div id="load-bar-wrap"><div id="load-bar"></div></div>
+</div>
 
 <div id="hud">
   <div id="hud-left">
@@ -640,7 +645,17 @@ requestAnimationFrame(loop);
 // ── Startup ───────────────────────────────────────────────────────────────────
 const PRELOAD=['block-grass','block-snow','coin-gold','flag','trap-spikes','tree-pine-small'];
 
-Promise.all(PRELOAD.map(loadGLB)).then(async ()=>{
+const loadBar  = document.getElementById('load-bar');
+const loadText = document.getElementById('load-text');
+let loadedCount = 0;
+function onOneLoaded() {
+  loadedCount++;
+  const pct = Math.round(loadedCount / PRELOAD.length * 100);
+  loadBar.style.width = pct + '%';
+  loadText.textContent = `Loading assets… ${pct}%`;
+}
+
+Promise.all(PRELOAD.map(n => loadGLB(n).then(r => { onOneLoaded(); return r; }))).then(async ()=>{
   document.getElementById('loading').style.display='none';
 
   // Show coloured fallback character immediately
