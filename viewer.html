@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Asset Viewer — Kenney Platformer Kit</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0d1a2e; color:#fff; font-family:'Segoe UI',Arial,sans-serif; }
+
+header {
+  position:sticky; top:0; z-index:10;
+  background:#0d1a2e; border-bottom:1px solid rgba(255,255,255,.1);
+  padding:14px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+header h1 { font-size:20px; color:#f1c40f; white-space:nowrap; }
+header h1 span { font-size:13px; color:rgba(255,255,255,.45); font-weight:normal; margin-left:8px; }
+
+#search {
+  flex:1; min-width:180px; padding:8px 14px; border-radius:8px; font-size:14px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18);
+  color:#fff; outline:none;
+}
+#search::placeholder { color:rgba(255,255,255,.35); }
+#search:focus { border-color:#f1c40f; }
+
+#status { font-size:13px; color:rgba(255,255,255,.45); white-space:nowrap; }
+
+.grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(145px,1fr));
+  gap:10px; padding:16px;
+}
+
+.card {
+  background:#1a2a3a; border-radius:11px; padding:9px;
+  text-align:center; border:2px solid transparent;
+  transition:border-color .15s, transform .15s, box-shadow .15s;
+}
+.card:hover { border-color:#f1c40f; transform:translateY(-3px); box-shadow:0 6px 20px rgba(0,0,0,.4); }
+.card[data-hidden="true"] { display:none; }
+
+.thumb {
+  width:127px; height:127px; display:block; margin:0 auto 8px;
+  border-radius:7px; background:#0a141e; object-fit:contain;
+}
+.thumb.loading { background:#0a141e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='%23ffffff22' stroke-width='2'/%3E%3C/svg%3E") center/40px no-repeat; }
+.thumb.error { background:#1a0a0a; }
+
+.num { color:#f1c40f; font-weight:700; font-size:15px; margin-bottom:3px; }
+.name { color:rgba(255,255,255,.65); font-size:10.5px; line-height:1.35; word-break:break-all; }
+
+/* offscreen render canvas */
+#rc { position:fixed; left:-9999px; top:-9999px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Kenney Assets <span id="total-label"></span></h1>
+  <input id="search" type="text" placeholder="Search by name or number…">
+  <div id="status">Rendering previews…</div>
+</header>
+
+<div class="grid" id="grid"></div>
+<canvas id="rc" width="150" height="150"></canvas>
+
+<script type="importmap">
+{
+  "imports": {
+    "three":         "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const MODELS = [
+  'arrow','arrows','barrel',
+  'block-grass-corner-low','block-grass-corner-overhang-low','block-grass-corner-overhang','block-grass-corner',
+  'block-grass-curve-half','block-grass-curve-low','block-grass-curve',
+  'block-grass-edge','block-grass-hexagon',
+  'block-grass-large-slope-narrow','block-grass-large-slope-steep-narrow','block-grass-large-slope-steep','block-grass-large-slope',
+  'block-grass-large-tall','block-grass-large','block-grass-long',
+  'block-grass-low-hexagon','block-grass-low-large','block-grass-low-long','block-grass-low-narrow','block-grass-low',
+  'block-grass-narrow',
+  'block-grass-overhang-corner','block-grass-overhang-edge','block-grass-overhang-hexagon',
+  'block-grass-overhang-large-slope-narrow','block-grass-overhang-large-slope-steep-narrow',
+  'block-grass-overhang-large-slope-steep','block-grass-overhang-large-slope',
+  'block-grass-overhang-large-tall','block-grass-overhang-large','block-grass-overhang-long',
+  'block-grass-overhang-low-hexagon','block-grass-overhang-low-large','block-grass-overhang-low-long',
+  'block-grass-overhang-low-narrow','block-grass-overhang-low','block-grass-overhang-narrow',
+  'block-grass',
+  'block-moving-blue','block-moving-large','block-moving',
+  'block-snow-corner-low','block-snow-corner-overhang-low','block-snow-corner-overhang','block-snow-corner',
+  'block-snow-curve-half','block-snow-curve-low','block-snow-curve',
+  'block-snow-edge','block-snow-hexagon',
+  'block-snow-large-slope-narrow','block-snow-large-slope-steep-narrow','block-snow-large-slope-steep','block-snow-large-slope',
+  'block-snow-large-tall','block-snow-large','block-snow-long',
+  'block-snow-low-hexagon','block-snow-low-large','block-snow-low-long','block-snow-low-narrow','block-snow-low',
+  'block-snow-narrow',
+  'block-snow-overhang-corner','block-snow-overhang-edge','block-snow-overhang-hexagon',
+  'block-snow-overhang-large-slope-narrow','block-snow-overhang-large-slope-steep-narrow',
+  'block-snow-overhang-large-slope-steep','block-snow-overhang-large-slope',
+  'block-snow-overhang-large-tall','block-snow-overhang-large','block-snow-overhang-long',
+  'block-snow-overhang-low-hexagon','block-snow-overhang-low-large','block-snow-overhang-low-long',
+  'block-snow-overhang-low-narrow','block-snow-overhang-low','block-snow-overhang-narrow',
+  'block-snow',
+  'bomb','brick','button-round','button-square',
+  'character-oobi','character-oodi','character-ooli','character-oopi','character-oozi',
+  'chest','coin-bronze','coin-gold','coin-silver','conveyor-belt',
+  'crate-item-strong','crate-item','crate-strong','crate',
+  'door-large-open','door-open','door-rotate-large','door-rotate',
+  'fence-broken','fence-corner-curved','fence-corner',
+  'fence-low-broken','fence-low-corner-curved','fence-low-corner','fence-low-straight',
+  'fence-rope','fence-straight',
+  'flag','flowers-tall','flowers','grass','heart',
+  'hedge-corner','hedge','jewel','key',
+  'ladder-broken','ladder-long','ladder','lever','lock',
+  'mushrooms','pipe','plant',
+  'platform-fortified','platform-overhang','platform-ramp','platform',
+  'poles','rocks','saw','sign',
+  'spike-block-wide','spike-block','spring','star','stones',
+  'trap-spikes-large','trap-spikes',
+  'tree-pine-small','tree-pine-snow-small','tree-pine-snow','tree-pine',
+  'tree-snow','tree'
+];
+
+const BASE = 'assets/Models/GLB%20format/';
+
+// ── Renderer (offscreen) ───────────────────────────────────────────────────
+const rc = document.getElementById('rc');
+const renderer = new THREE.WebGLRenderer({ canvas:rc, antialias:true, preserveDrawingBuffer:true });
+renderer.setSize(150,150);
+renderer.setPixelRatio(2);
+renderer.setClearColor(0x0a141e);
+renderer.shadowMap.enabled = false;
+
+const rScene  = new THREE.Scene();
+const rCamera = new THREE.PerspectiveCamera(42,1,0.01,200);
+const rSun    = new THREE.DirectionalLight(0xffffff,2.8);
+rSun.position.set(3,5,4);
+rScene.add(rSun, new THREE.AmbientLight(0x9ab4d8,1.6));
+
+// ── Build cards ────────────────────────────────────────────────────────────
+const grid = document.getElementById('grid');
+const imgEls = [];
+
+MODELS.forEach((name,i) => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.dataset.name = name;
+  card.dataset.num  = i+1;
+  card.innerHTML = `
+    <img class="thumb loading" id="img${i}" alt="${name}">
+    <div class="num">#${i+1}</div>
+    <div class="name">${name}</div>
+  `;
+  grid.appendChild(card);
+  imgEls.push(document.getElementById('img'+i));
+});
+
+document.getElementById('total-label').textContent = `— ${MODELS.length} assets`;
+
+// ── Render queue ───────────────────────────────────────────────────────────
+const loader = new GLTFLoader();
+
+function renderOne(name, imgEl) {
+  return new Promise(resolve => {
+    loader.load(BASE + name + '.glb', gltf => {
+      const obj = gltf.scene;
+
+      // Auto-scale to fit view
+      const box  = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const maxD = Math.max(size.x, size.y, size.z);
+      if(maxD > 0) obj.scale.setScalar(1.7 / maxD);
+
+      // Center object
+      const box2 = new THREE.Box3().setFromObject(obj);
+      const cen  = new THREE.Vector3(); box2.getCenter(cen);
+      obj.position.sub(cen);
+
+      // Make materials double-sided so back faces show
+      obj.traverse(n => {
+        if(!n.isMesh) return;
+        const mats = Array.isArray(n.material) ? n.material : [n.material];
+        mats.forEach(m => { m.side = THREE.DoubleSide; });
+      });
+
+      rScene.add(obj);
+      rCamera.position.set(2.0, 1.4, 2.0);
+      rCamera.lookAt(0, 0, 0);
+      renderer.render(rScene, rCamera);
+
+      imgEl.src = rc.toDataURL();
+      imgEl.classList.remove('loading');
+
+      rScene.remove(obj);
+      obj.traverse(n => {
+        if(n.geometry) n.geometry.dispose();
+        if(n.material) {
+          (Array.isArray(n.material)?n.material:[n.material]).forEach(m=>m.dispose());
+        }
+      });
+      resolve();
+    }, undefined, () => {
+      imgEl.classList.remove('loading');
+      imgEl.classList.add('error');
+      resolve();
+    });
+  });
+}
+
+async function renderAll() {
+  const statusEl = document.getElementById('status');
+  for(let i=0;i<MODELS.length;i++){
+    statusEl.textContent = `${i+1} / ${MODELS.length} rendered`;
+    await renderOne(MODELS[i], imgEls[i]);
+  }
+  statusEl.textContent = `All ${MODELS.length} assets ready`;
+}
+
+// ── Search / filter ────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.card').forEach(card => {
+    const match = !q
+      || card.dataset.name.includes(q)
+      || card.dataset.num === q
+      || ('#'+card.dataset.num) === q;
+    card.dataset.hidden = match ? 'false' : 'true';
+  });
+});
+
+renderAll();
+</script>
+</body>
+</html>
