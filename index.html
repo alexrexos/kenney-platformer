@@ -404,7 +404,7 @@ function generateLevel(lvl){
   const style   = Math.floor(rng()*5);
   const bModel  = blockPalette(lvl);
 
-  const blocks=[], coins=[], staticHaz=[], movingHaz=[], springs=[], movPlatsData=[];
+  const blocks=[], coins=[], staticHaz=[], movingHaz=[], springs=[], movPlatsData=[], decor=[];
 
   // ── Start platform ──────────────────────────────────────────────────────────
   const startW = Math.max(2, Math.round(lrp(4,2,d)));
@@ -437,8 +437,22 @@ function generateLevel(lvl){
       continue;
     }
 
-    // ── Static blocks ───────────────────────────────────────────────────────
-    for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy,model:bModel});
+    // ── Static blocks (with curve/edge/slope variants for grass levels) ────
+    for(let j=0;j<pw;j++){
+      let m=bModel;
+      if(bModel==='block-grass'||bModel==='block-grass-low'){
+        const r=rng();
+        if(r<0.09)       m='block-grass-curve';
+        else if(r<0.16)  m='block-grass-curve-low';
+        else if(r<0.20)  m='block-grass-curve-half';
+        else if((j===0||j===pw-1)&&r<0.42) m='block-grass-edge';
+      }
+      blocks.push({x:nx+j,y:cy,model:m});
+    }
+    // Slope decoration in the gap just after this platform (visual only, no physics)
+    if((bModel==='block-grass'||bModel==='block-grass-low')&&rng()<0.30){
+      decor.push({x:nx+pw, y:cy, model:'block-grass-large-slope'});
+    }
 
     // ── Spring (level 8+) ──────────────────────────────────────────────────
     if(lvl>=8 && rng()<lrp(0,0.35,d)){
@@ -474,7 +488,7 @@ function generateLevel(lvl){
   const ey = Math.max(0,Math.min(3,cy+Math.round((rng()-.5)*2)));
   for(let i=0;i<3;i++) blocks.push({x:ex+i,y:ey,model:bModel});
 
-  return {blocks,coins,staticHaz,movingHaz,springs,movPlatsData,flagX:ex+1,flagY:ey};
+  return {blocks,coins,staticHaz,movingHaz,springs,movPlatsData,decor,flagX:ex+1,flagY:ey};
 }
 
 // ── Build / load level ────────────────────────────────────────────────────────
@@ -504,6 +518,12 @@ function loadLevel(lvl){
     boxes.push({minX:x-.5,maxX:x+.5,topY:y+1,moving:false});
     const m=cloneGLB(model)||cloneGLB('block-grass')||makeFallbackBlock(x,y);
     m.position.set(x,y,0); lvlGroup.add(m);
+  }
+
+  // ── Slope / curve decorations (no collision) ────────────────────────────────
+  for(const d of data.decor){
+    const m=cloneGLB(d.model); if(!m) continue;
+    m.position.set(d.x,d.y,0); lvlGroup.add(m);
   }
 
   // ── Moving platforms ─────────────────────────────────────────────────────────
@@ -746,6 +766,8 @@ requestAnimationFrame(loop);
 // ── Startup ───────────────────────────────────────────────────────────────────
 const PRELOAD=[
   'block-grass','block-grass-low','block-grass-large',
+  'block-grass-curve-half','block-grass-curve-low','block-grass-curve',
+  'block-grass-edge','block-grass-large-slope',
   'block-snow','block-snow-low',
   'block-moving','block-moving-blue',
   'coin-gold','coin-silver','coin-bronze','jewel',
