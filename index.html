@@ -714,7 +714,7 @@ function tick(dt){
 
   // WASD movement relative to camera yaw direction
   const fwdX=-Math.sin(fpYaw), fwdZ=-Math.cos(fpYaw); // camera forward in XZ
-  const rgtX= fwdZ,            rgtZ=-fwdX;             // camera right in XZ
+  const rgtX=-fwdZ,            rgtZ= fwdX;             // camera right in XZ
 
   const W=keys['KeyW'], S=keys['KeyS'], A=keys['KeyA'], D=keys['KeyD'];
   const sprint = W && (keys['ShiftLeft']||keys['ShiftRight']);
