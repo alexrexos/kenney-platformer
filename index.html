@@ -157,7 +157,7 @@ canvas { display:block; }
 
 <div id="crosshair"></div>
 <div id="fp-hint">🖱 Click to capture mouse &nbsp;|&nbsp; ESC to release</div>
-<div id="ctrl">A / D — move &nbsp;|&nbsp; W / Space — jump &nbsp;|&nbsp; Reach the flag!</div>
+<div id="ctrl">W/A/S/D — move &nbsp;|&nbsp; Space — jump &nbsp;|&nbsp; Shift+W — sprint &nbsp;|&nbsp; Mouse — look</div>
 
 <script type="importmap">
 {
@@ -236,7 +236,7 @@ document.addEventListener('mousemove', e => {
 // ── Game state ────────────────────────────────────────────────────────────────
 let level=1, totalCoins=0, lvlCoins=0, lives=3, gameOver=false, lvlDone=false;
 const GRAVITY=-22, JUMP_V=10, MOVE_V=6, PW=0.35;
-const ps = { x:1,y:2,vx:0,vy:0,onGround:false,facing:1,inv:0 };
+const ps = { x:1,y:2,z:0, vx:0,vy:0,vz:0, onGround:false,facing:1,inv:0 };
 let boxes=[], coinObjs=[], flagPos={x:0,y:0};
 
 const lvlGroup = new THREE.Group(); scene.add(lvlGroup);
@@ -560,7 +560,7 @@ function loadLevel(lvl){
 
   // ── Static blocks ───────────────────────────────────────────────────────────
   for(const {x,y,model} of data.blocks){
-    boxes.push({minX:x-.5,maxX:x+.5,topY:y+1,moving:false});
+    boxes.push({minX:x-.5,maxX:x+.5,topY:y+1,minZ:-0.5,maxZ:0.5,moving:false});
     const m=cloneGLB(model)||cloneGLB('block-grass')||makeFallbackBlock(x,y);
     m.position.set(x,y,0); lvlGroup.add(m);
   }
@@ -576,7 +576,7 @@ function loadLevel(lvl){
     const m=cloneGLB(pd.model)||cloneGLB('block-grass')||makeFallbackBlock(pd.x,pd.y,0x2255aa);
     m.position.set(pd.x,pd.y,0); lvlGroup.add(m);
     const boxIdx=boxes.length;
-    boxes.push({minX:pd.x-.5,maxX:pd.x+.5,topY:pd.y+1,moving:true});
+    boxes.push({minX:pd.x-.5,maxX:pd.x+.5,topY:pd.y+1,minZ:-0.5,maxZ:0.5,moving:true});
     movPlats.push({mesh:m,startX:pd.x,y:pd.y,range:pd.range,speed:pd.speed,t:0,boxIdx});
   }
 
@@ -585,7 +585,7 @@ function loadLevel(lvl){
     const m=cloneGLB(h.model)||makeFallbackCone(h.x,h.y);
     m.position.set(h.x,h.y,0); lvlGroup.add(m);
     // stored as hazard for collision
-    boxes.push({minX:h.x-h.hw,maxX:h.x+h.hw,topY:h.y+0.9,moving:false,isHazard:true});
+    boxes.push({minX:h.x-h.hw,maxX:h.x+h.hw,topY:h.y+0.9,minZ:-0.5,maxZ:0.5,moving:false,isHazard:true});
   }
 
   // ── Saw hazards (oscillate) ──────────────────────────────────────────────────
@@ -640,7 +640,7 @@ function loadLevel(lvl){
 
   // Reset player
   lives=3;
-  ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;ps.onGround=false;ps.inv=0;ps.facing=1;
+  ps.x=1;ps.y=2;ps.z=0;ps.vx=0;ps.vy=0;ps.vz=0;ps.onGround=false;ps.inv=0;ps.facing=1;
   hideOverlay(); updateHUD();
 }
 
@@ -711,26 +711,46 @@ function tick(dt){
     s.mesh.rotation.z-=dt*5;
   }
 
-  const L=keys['KeyA']||keys['ArrowLeft'];
-  const R=keys['KeyD']||keys['ArrowRight'];
-  const J=keys['KeyW']||keys['ArrowUp']||keys['Space'];
+  // WASD movement relative to camera yaw direction
+  const fwdX=-Math.sin(fpYaw), fwdZ=-Math.cos(fpYaw); // camera forward in XZ
+  const rgtX= fwdZ,            rgtZ=-fwdX;             // camera right in XZ
 
-  if(L){ps.vx=-MOVE_V;ps.facing=-1;}
-  else if(R){ps.vx=MOVE_V;ps.facing=1;}
-  else ps.vx*=.72;
+  const W=keys['KeyW'], S=keys['KeyS'], A=keys['KeyA'], D=keys['KeyD'];
+  const sprint = W && (keys['ShiftLeft']||keys['ShiftRight']);
+  const spd = sprint ? MOVE_V*1.75 : MOVE_V;
 
-  if(J&&ps.onGround){ps.vy=JUMP_V;ps.onGround=false;}
+  let mx=0, mz=0;
+  if(W){ mx+=fwdX; mz+=fwdZ; }
+  if(S){ mx-=fwdX; mz-=fwdZ; }
+  if(D){ mx+=rgtX; mz+=rgtZ; }
+  if(A){ mx-=rgtX; mz-=rgtZ; }
+
+  const mLen=Math.sqrt(mx*mx+mz*mz);
+  if(mLen>0.01){
+    ps.vx=(mx/mLen)*spd; ps.vz=(mz/mLen)*spd;
+    if(Math.abs(ps.vx)>0.1) ps.facing=ps.vx>0?1:-1;
+  } else {
+    ps.vx*=0.75; ps.vz*=0.75;
+  }
+
+  if(keys['Space']&&ps.onGround){ps.vy=JUMP_V;ps.onGround=false;}
 
   ps.vy+=GRAVITY*dt;
   ps.x+=ps.vx*dt;
   ps.y+=ps.vy*dt;
-  if(ps.x<0){ps.x=0;ps.vx=0;}
+  ps.z+=ps.vz*dt;
 
-  // Platform collision (skip hazard boxes)
+  // Bounds
+  if(ps.x<0){ps.x=0;ps.vx=0;}
+  if(ps.z> 1.2){ps.z= 1.2;ps.vz=0;}
+  if(ps.z<-1.2){ps.z=-1.2;ps.vz=0;}
+
+  // Platform landing (check X and Z extents)
   ps.onGround=false;
   for(const b of boxes){
     if(b.isHazard) continue;
     if(ps.x+PW<b.minX||ps.x-PW>b.maxX) continue;
+    if(ps.z+PW<b.minZ||ps.z-PW>b.maxZ) continue;
     if(ps.vy<=0&&ps.y<=b.topY&&ps.y>=b.topY-.55){
       ps.y=b.topY;ps.vy=0;ps.onGround=true;
     }
@@ -738,19 +758,21 @@ function tick(dt){
 
   // Spring bounce
   for(const sp of springPos){
-    if(Math.abs(ps.x-sp.x)<.55&&ps.y<=sp.y+1.1&&ps.y>=sp.y-.1&&ps.vy<=0){
+    if(Math.abs(ps.x-sp.x)<.55&&Math.abs(ps.z)<.6&&ps.y<=sp.y+1.1&&ps.y>=sp.y-.1&&ps.vy<=0){
       ps.vy=JUMP_V*1.65; ps.onGround=false; break;
     }
   }
 
   // Fell off
-  if(ps.y<-8){damage();ps.x=1;ps.y=2;ps.vx=0;ps.vy=0;}
+  if(ps.y<-8){damage();ps.x=1;ps.y=2;ps.z=0;ps.vx=0;ps.vy=0;ps.vz=0;}
 
-  // Static hazard collision (spikes, spike-block)
+  // Static hazard collision
   if(ps.inv<=0){
     for(const b of boxes){
       if(!b.isHazard) continue;
-      if(ps.x+PW>b.minX&&ps.x-PW<b.maxX&&ps.y<b.topY&&ps.y>b.topY-1.2){damage();break;}
+      if(ps.x+PW>b.minX&&ps.x-PW<b.maxX&&
+         ps.z+PW>b.minZ&&ps.z-PW<b.maxZ&&
+         ps.y<b.topY&&ps.y>b.topY-1.2){damage();break;}
     }
   }
 
@@ -758,7 +780,7 @@ function tick(dt){
   if(ps.inv<=0){
     for(const s of sawObjs){
       const sx=s.mesh.position.x;
-      if(Math.abs(ps.x-sx)<.45&&ps.y<=s.y+0.9&&ps.y>=s.y-0.3){damage();break;}
+      if(Math.abs(ps.x-sx)<.45&&Math.abs(ps.z)<.6&&ps.y<=s.y+0.9&&ps.y>=s.y-0.3){damage();break;}
     }
   }
 
@@ -767,21 +789,20 @@ function tick(dt){
   // Coins
   for(const c of coinObjs){
     if(c.collected) continue;
-    if(Math.abs(ps.x-c.x)<.6&&Math.abs(ps.y-c.y)<.8){
+    if(Math.abs(ps.x-c.x)<.6&&Math.abs(ps.y-c.y)<.8&&Math.abs(ps.z)<.8){
       c.collected=true; lvlGroup.remove(c.mesh);
       lvlCoins++; totalCoins++; updateHUD();
     }
   }
 
   // Flag
-  if(!lvlDone&&Math.abs(ps.x-flagPos.x)<1.2&&ps.y<=flagPos.y+2.5&&ps.y>=flagPos.y-.5){
+  if(!lvlDone&&Math.abs(ps.x-flagPos.x)<1.2&&ps.y<=flagPos.y+2.5&&ps.y>=flagPos.y-.5&&Math.abs(ps.z)<1.5){
     lvlDone=true; showComplete();
   }
 
-  // Update player mesh
-  player.position.set(ps.x,ps.y,0);
+  // Player mesh position (hidden in FP, but kept in sync for invincibility flicker)
+  player.position.set(ps.x,ps.y,ps.z);
   player.rotation.y=ps.facing===1?0:Math.PI;
-  player.visible=ps.inv<=0||Math.floor(ps.inv*8)%2===0;
 }
 
 function damage(){
@@ -801,7 +822,7 @@ function loop(now){
 
   // First-person camera — eyes at character head, mouse-controlled look
   player.visible = false;
-  camera.position.set(ps.x, ps.y + 1.0, 0.6);
+  camera.position.set(ps.x, ps.y + 1.0, ps.z);
   camera.rotation.order = 'YXZ';
   camera.rotation.y = fpYaw;
   camera.rotation.x = fpPitch;
