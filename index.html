@@ -437,21 +437,25 @@ function generateLevel(lvl){
       continue;
     }
 
-    // ── Static blocks (with curve/edge/slope variants for grass levels) ────
-    for(let j=0;j<pw;j++){
-      let m=bModel;
-      if(bModel==='block-grass'||bModel==='block-grass-low'){
-        const r=rng();
-        if(r<0.09)       m='block-grass-curve';
-        else if(r<0.16)  m='block-grass-curve-low';
-        else if(r<0.20)  m='block-grass-curve-half';
-        else if((j===0||j===pw-1)&&r<0.42) m='block-grass-edge';
+    // ── Static blocks (solid regular model — no random swapping) ───────────
+    for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy,model:bModel});
+
+    // ── Decorative depth pieces behind platform (z-offset, no collision) ──
+    if(bModel==='block-grass'||bModel==='block-grass-low'){
+      // Curved blocks sit behind the platform row for 3-D depth
+      if(rng()<0.40){
+        const ci=Math.floor(rng()*pw);
+        const cm=rng()<0.5?'block-grass-curve':'block-grass-curve-low';
+        decor.push({x:nx+ci, y:cy, z:1.4, model:cm});
       }
-      blocks.push({x:nx+j,y:cy,model:m});
-    }
-    // Slope decoration in the gap just after this platform (visual only, no physics)
-    if((bModel==='block-grass'||bModel==='block-grass-low')&&rng()<0.30){
-      decor.push({x:nx+pw, y:cy, model:'block-grass-large-slope'});
+      if(pw>=2 && rng()<0.30)
+        decor.push({x:nx, y:cy, z:1.0, model:'block-grass-curve-half'});
+      // Edge piece tucked just behind the right end of the platform
+      if(rng()<0.35)
+        decor.push({x:nx+pw-1, y:cy, z:1.2, model:'block-grass-edge'});
+      // Slope sits behind the gap between platforms as a ground fill
+      if(rng()<0.35)
+        decor.push({x:nx+pw, y:cy, z:1.5, model:'block-grass-large-slope'});
     }
 
     // ── Spring (level 8+) ──────────────────────────────────────────────────
@@ -520,10 +524,10 @@ function loadLevel(lvl){
     m.position.set(x,y,0); lvlGroup.add(m);
   }
 
-  // ── Slope / curve decorations (no collision) ────────────────────────────────
+  // ── Slope / curve decorations (no collision, z-offset for depth) ───────────
   for(const d of data.decor){
     const m=cloneGLB(d.model); if(!m) continue;
-    m.position.set(d.x,d.y,0); lvlGroup.add(m);
+    m.position.set(d.x, d.y, d.z||0); lvlGroup.add(m);
   }
 
   // ── Moving platforms ─────────────────────────────────────────────────────────
