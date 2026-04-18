@@ -483,22 +483,19 @@ function generateLevel(lvl){
     // ── Static blocks (solid regular model — no random swapping) ───────────
     for(let j=0;j<pw;j++) blocks.push({x:nx+j,y:cy,model:bModel});
 
-    // ── Decorative depth pieces behind platform (z-offset, no collision) ──
+    // ── Side blocks at z=1.0 — solid walkable parallel path ───────────────
     if(bModel==='block-grass'||bModel==='block-grass-low'){
-      // Curved blocks sit behind the platform row for 3-D depth
-      if(rng()<0.40){
+      if(rng()<0.45){
         const ci=Math.floor(rng()*pw);
         const cm=rng()<0.5?'block-grass-curve':'block-grass-curve-low';
-        decor.push({x:nx+ci, y:cy, z:1.4, model:cm});
+        decor.push({x:nx+ci, y:cy, z:1.0, model:cm});
       }
       if(pw>=2 && rng()<0.30)
         decor.push({x:nx, y:cy, z:1.0, model:'block-grass-curve-half'});
-      // Edge piece tucked just behind the right end of the platform
       if(rng()<0.35)
-        decor.push({x:nx+pw-1, y:cy, z:1.2, model:'block-grass-edge'});
-      // Slope sits behind the gap between platforms as a ground fill
+        decor.push({x:nx+pw-1, y:cy, z:1.0, model:'block-grass-edge'});
       if(rng()<0.35)
-        decor.push({x:nx+pw, y:cy, z:1.5, model:'block-grass-large-slope'});
+        decor.push({x:nx+pw, y:cy, z:1.0, model:'block-grass-large-slope'});
     }
 
     // ── Spring (level 8+) ──────────────────────────────────────────────────
@@ -567,10 +564,12 @@ function loadLevel(lvl){
     m.position.set(x,y,0); lvlGroup.add(m);
   }
 
-  // ── Slope / curve decorations (no collision, z-offset for depth) ───────────
+  // ── Slope / curve side blocks (solid — player can walk on them) ─────────────
   for(const d of data.decor){
     const m=cloneGLB(d.model); if(!m) continue;
-    m.position.set(d.x, d.y, d.z||0); lvlGroup.add(m);
+    const dz=d.z||0;
+    m.position.set(d.x, d.y, dz); lvlGroup.add(m);
+    boxes.push({minX:d.x-.5,maxX:d.x+.5,topY:d.y+1,minZ:dz-.5,maxZ:dz+.5,moving:false});
   }
 
   // ── Moving platforms ─────────────────────────────────────────────────────────
@@ -744,8 +743,8 @@ function tick(dt){
 
   // Bounds
   if(ps.x<0){ps.x=0;ps.vx=0;}
-  if(ps.z> 1.2){ps.z= 1.2;ps.vz=0;}
-  if(ps.z<-1.2){ps.z=-1.2;ps.vz=0;}
+  if(ps.z> 1.6){ps.z= 1.6;ps.vz=0;}
+  if(ps.z<-1.6){ps.z=-1.6;ps.vz=0;}
 
   // Platform landing (check X and Z extents)
   ps.onGround=false;
