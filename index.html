@@ -764,8 +764,8 @@ function tick(dt){
     }
   }
 
-  // Fell off
-  if(ps.y<-8){damage();ps.x=1;ps.y=2;ps.z=0;ps.vx=0;ps.vy=0;ps.vz=0;}
+  // Fell off — no invincibility so every fall costs a life
+  if(ps.y<-8){damage(0);ps.x=1;ps.y=2;ps.z=0;ps.vx=0;ps.vy=0;ps.vz=0;}
 
   // Static hazard collision
   if(ps.inv<=0){
@@ -806,9 +806,9 @@ function tick(dt){
   player.rotation.y=ps.facing===1?0:Math.PI;
 }
 
-function damage(){
+function damage(inv=1.5){
   if(ps.inv>0) return;
-  lives--;ps.inv=2;ps.vy=5;updateHUD();
+  lives--;ps.inv=inv;ps.vy=5;updateHUD();
   if(lives<=0){gameOver=true;showDead();}
 }
 
