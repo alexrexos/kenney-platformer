@@ -669,7 +669,8 @@ function updateHUD(){
 function showOverlay(html){ document.getElementById('card').innerHTML=html; document.getElementById('overlay').style.display='flex'; }
 function hideOverlay(){ document.getElementById('overlay').style.display='none'; }
 
-window.nextLevel=()=>{ level++; loadLevel(level); };
+window.nextLevel   = ()=>{ level++; loadLevel(level); };
+window.retryLevel  = ()=>{ loadLevel(level); };
 
 function showComplete(){
   const isLast=level>=MAX_LEVELS;
@@ -688,10 +689,11 @@ function showComplete(){
 function showDead(){
   showOverlay(`
     <h1 style="color:#e74c3c">Game Over</h1>
-    <div class="sub">Fell on level ${level}</div>
+    <div class="sub">Checkpoint: Level ${level}</div>
     <div class="stat">Total coins: ${totalCoins}</div>
     <div class="stat">Levels cleared: ${level-1}</div><br>
-    <button class="btn btn-retry" onclick="location.reload()">Try Again</button>
+    <button class="btn btn-retry" onclick="retryLevel()">Retry Level ${level}</button>
+    <button class="btn btn-replay" onclick="location.reload()">Restart Game</button>
   `);
 }
 
