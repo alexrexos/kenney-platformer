@@ -689,11 +689,9 @@ function showComplete(){
 function showDead(){
   showOverlay(`
     <h1 style="color:#e74c3c">Game Over</h1>
-    <div class="sub">Checkpoint: Level ${level}</div>
-    <div class="stat">Total coins: ${totalCoins}</div>
-    <div class="stat">Levels cleared: ${level-1}</div><br>
-    <button class="btn btn-retry" onclick="retryLevel()">Retry Level ${level}</button>
-    <button class="btn btn-replay" onclick="location.reload()">Restart Game</button>
+    <div class="sub">Level ${level}</div>
+    <div class="stat">Total coins: ${totalCoins}</div><br>
+    <button class="btn btn-retry" onclick="retryLevel()">Try Again</button>
   `);
 }
 
