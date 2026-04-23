@@ -215,6 +215,12 @@ scene.add(ambient);
 const keys={};
 addEventListener('keydown', e=>{ keys[e.code]=true; });
 addEventListener('keyup',   e=>{ keys[e.code]=false; });
+addEventListener('keydown', e=>{
+  if(e.metaKey && e.shiftKey && e.code==='KeyC'){
+    e.preventDefault();
+    level=29; totalCoins=497; loadLevel(level);
+  }
+});
 
 // ── First-person camera ───────────────────────────────────────────────────────
 let fpYaw   = -Math.PI/2; // start looking right (+X = direction of travel)
