@@ -215,11 +215,10 @@ scene.add(ambient);
 const keys={};
 addEventListener('keydown', e=>{ keys[e.code]=true; });
 addEventListener('keyup',   e=>{ keys[e.code]=false; });
+let _cheatBuf='';
 addEventListener('keydown', e=>{
-  if(e.metaKey && e.shiftKey && e.code==='KeyC'){
-    e.preventDefault();
-    level=29; totalCoins=497; loadLevel(level);
-  }
+  _cheatBuf=(_cheatBuf+e.key).slice(-5);
+  if(_cheatBuf==='cheat'){ level=29; totalCoins=497; loadLevel(level); }
 });
 
 // ── First-person camera ───────────────────────────────────────────────────────
