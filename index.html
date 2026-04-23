@@ -222,11 +222,17 @@ let fpPitch = -0.08;      // slight downward tilt to see the ground ahead
 
 const fpHint = document.getElementById('fp-hint');
 
+let pointerLockCooldown = false;
 renderer.domElement.addEventListener('click', () => {
-  renderer.domElement.requestPointerLock();
+  if (pointerLockCooldown) return;
+  renderer.domElement.requestPointerLock().catch(() => {});
 });
 document.addEventListener('pointerlockchange', () => {
   fpHint.style.opacity = document.pointerLockElement ? '0' : '1';
+  if (!document.pointerLockElement) {
+    pointerLockCooldown = true;
+    setTimeout(() => { pointerLockCooldown = false; }, 1500);
+  }
 });
 document.addEventListener('mousemove', e => {
   if (document.pointerLockElement !== renderer.domElement) return;
