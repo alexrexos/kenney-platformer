@@ -215,10 +215,13 @@ scene.add(ambient);
 const keys={};
 addEventListener('keydown', e=>{ keys[e.code]=true; });
 addEventListener('keyup',   e=>{ keys[e.code]=false; });
-let _cheatBuf='';
+let _cheatLast=0;
 addEventListener('keydown', e=>{
-  _cheatBuf=(_cheatBuf+e.key).slice(-5);
-  if(_cheatBuf==='cheat'){ level=29; totalCoins=497; loadLevel(level); }
+  if(e.metaKey && (e.code==='AltLeft'||e.code==='AltRight')){
+    const now=Date.now();
+    if(now-_cheatLast<600){ level=29; totalCoins=497; loadLevel(level); }
+    _cheatLast=now;
+  }
 });
 
 // ── First-person camera ───────────────────────────────────────────────────────
