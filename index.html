@@ -751,6 +751,7 @@ function tick(dt){
   if(keys['Space']&&ps.onGround){ps.vy=JUMP_V;ps.onGround=false;}
 
   ps.vy+=GRAVITY*dt;
+  if(ps.vy<-10) ps.vy=-10;
   ps.x+=ps.vx*dt;
   ps.y+=ps.vy*dt;
   ps.z+=ps.vz*dt;
