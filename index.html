@@ -217,9 +217,9 @@ addEventListener('keydown', e=>{ keys[e.code]=true; });
 addEventListener('keyup',   e=>{ keys[e.code]=false; });
 let _cheatLast=0;
 addEventListener('keydown', e=>{
-  if(e.metaKey && (e.code==='AltLeft'||e.code==='AltRight')){
+  if(e.code==='MetaLeft'||e.code==='MetaRight'){
     const now=Date.now();
-    if(now-_cheatLast<600){ level=29; totalCoins=497; loadLevel(level); }
+    if(now-_cheatLast<600){ level=30; totalCoins=497; loadLevel(level); }
     _cheatLast=now;
   }
 });
@@ -745,7 +745,7 @@ function tick(dt){
     ps.vx=(mx/mLen)*spd; ps.vz=(mz/mLen)*spd;
     if(Math.abs(ps.vx)>0.1) ps.facing=ps.vx>0?1:-1;
   } else {
-    ps.vx*=0.75; ps.vz*=0.75;
+    ps.vx=0; ps.vz=0;
   }
 
   if(keys['Space']&&ps.onGround){ps.vy=JUMP_V;ps.onGround=false;}
